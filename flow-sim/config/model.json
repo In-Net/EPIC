@@ -1,0 +1,27 @@
+[
+    {
+      "model": "Qwen3-0.6B",
+      "compute_time_per_epoch": "215.34 ms",
+      "comm_size_per_epoch": "1.1102 GB"
+    },
+    {
+      "model": "Qwen2.5-1.5B",
+      "compute_time_per_epoch": "188.12ms",
+      "comm_size_per_epoch": "2.8754 GB"
+    },
+    {
+      "model": "Qwen3-4B",
+      "compute_time_per_epoch": "337.793ms",
+      "comm_size_per_epoch": "7.4924 GB"
+    },
+    {
+      "model": "Qwen2.5-VL-3B",
+      "compute_time_per_epoch": "550.897ms",
+      "comm_size_per_epoch": "6.9935 GB"
+    },
+    {
+      "model": "Qwen3-14B",
+      "compute_time_per_epoch": "1081.794ms",
+      "comm_size_per_epoch": "27.5081 GB"
+    }
+  ]

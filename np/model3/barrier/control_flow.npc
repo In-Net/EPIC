@@ -1,0 +1,246 @@
+
+#include "lib/npc_arch.h"
+#include "types.h"
+#include "headers.h"
+
+#define DEBUG_CNTID_TX_ACK 14
+#define BARRIER_ARRIVE_ACK_UDP_PORT 0x4263
+
+NPCCounter<uint<32>> debugCounter[DEBUG_CNTID_NUM];
+NPCCounter<uint<32>> arrivalCounter[ROUND_TABLE_SIZE];
+NPCCounter<uint<32>> seenRank1[ROUND_TABLE_SIZE];
+NPCCounter<uint<32>> seenRank2[ROUND_TABLE_SIZE];
+NPCCounter<uint<32>> seenRank3[ROUND_TABLE_SIZE];
+NPCCounter<uint<32>> seenRank4[ROUND_TABLE_SIZE];
+
+@control void BarrierDropExit()
+{
+    npc_pkt_drop();
+    npc_exit();
+}
+
+@control void BarrierFanoutRelease()
+{
+    npc_intrinsic_tm_metadata.OutSubChan = WORKER1_OUT_CHAN;
+    npc_intrinsic_tm_metadata.Sqid       = WORKER1_OUT_SQID;
+    npc_intrinsic_tm_metadata.Qindex     = PRIORITY_ONE;
+    npc_pkt_add_sys_hdr();
+    npc_pkt_deparser();
+    npc_pkt_replicate();
+    npc_counter_add(debugCounter[DEBUG_CNTID_TX_RELEASE], 1);
+
+    npc_intrinsic_tm_metadata.OutSubChan = WORKER2_OUT_CHAN;
+    npc_intrinsic_tm_metadata.Sqid       = WORKER2_OUT_SQID;
+    npc_intrinsic_tm_metadata.Qindex     = PRIORITY_ONE;
+    npc_pkt_add_sys_hdr();
+    npc_pkt_deparser();
+    npc_pkt_replicate();
+    npc_counter_add(debugCounter[DEBUG_CNTID_TX_RELEASE], 1);
+
+    npc_intrinsic_tm_metadata.OutSubChan = WORKER3_OUT_CHAN;
+    npc_intrinsic_tm_metadata.Sqid       = WORKER3_OUT_SQID;
+    npc_intrinsic_tm_metadata.Qindex     = PRIORITY_ONE;
+    npc_pkt_add_sys_hdr();
+    npc_pkt_deparser();
+    npc_pkt_replicate();
+    npc_counter_add(debugCounter[DEBUG_CNTID_TX_RELEASE], 1);
+
+    npc_intrinsic_tm_metadata.OutSubChan = WORKER4_OUT_CHAN;
+    npc_intrinsic_tm_metadata.Sqid       = WORKER4_OUT_SQID;
+    npc_intrinsic_tm_metadata.Qindex     = PRIORITY_ONE;
+    npc_pkt_add_sys_hdr();
+    npc_pkt_deparser();
+    npc_pkt_replicate();
+    npc_counter_add(debugCounter[DEBUG_CNTID_TX_RELEASE], 1);
+
+    npc_pkt_drop();
+    npc_exit();
+}
+
+@control void BarrierSelfAck(CHANNEL_T outChan, SQID_T outSqid)
+{
+    udpHdr.DstPort  = BARRIER_ARRIVE_ACK_UDP_PORT;
+    barrierHdr.Rank = BARRIER_CONTROLLER_RANK;
+    npc_intrinsic_tm_metadata.OutSubChan = outChan;
+    npc_intrinsic_tm_metadata.Sqid       = outSqid;
+    npc_intrinsic_tm_metadata.Qindex     = PRIORITY_ONE;
+    npc_pkt_add_sys_hdr();
+    npc_pkt_deparser();
+    npc_pkt_send();
+    npc_counter_add(debugCounter[DEBUG_CNTID_TX_ACK], 1);
+    npc_exit();
+}
+
+@control void BarrierSelfAckRep(CHANNEL_T outChan, SQID_T outSqid)
+{
+    udpHdr.DstPort  = BARRIER_ARRIVE_ACK_UDP_PORT;
+    barrierHdr.Rank = BARRIER_CONTROLLER_RANK;
+    npc_intrinsic_tm_metadata.OutSubChan = outChan;
+    npc_intrinsic_tm_metadata.Sqid       = outSqid;
+    npc_intrinsic_tm_metadata.Qindex     = PRIORITY_ONE;
+    npc_pkt_add_sys_hdr();
+    npc_pkt_deparser();
+    npc_pkt_replicate();
+    npc_counter_add(debugCounter[DEBUG_CNTID_TX_ACK], 1);
+}
+
+@control void main_control()
+{
+    npc_counter_add(debugCounter[DEBUG_CNTID_RECV_PKTS], 1);
+
+    if (npc_intrinsic_metadata.PortType != PORT_TYPE_ETH) {
+        npc_counter_add(debugCounter[DEBUG_CNTID_DROP_NON_ETH], 1);
+        BarrierDropExit();
+    }
+
+    if (npc_pkt_get_valid(udpHdr) == 0) {
+        npc_counter_add(debugCounter[DEBUG_CNTID_DROP_NON_UDP], 1);
+        BarrierDropExit();
+    }
+
+    uint<8> inchan = npc_intrinsic_metadata.InSubChan[7:0];
+
+    if (udpHdr.DstPort == BARRIER_RELEASE_UDP_PORT) {
+        if (inchan != CTRL_IN_CHAN) {
+            npc_counter_add(debugCounter[DEBUG_CNTID_DROP_WRONG_INCHAN], 1);
+            BarrierDropExit();
+        }
+        if (npc_pkt_get_valid(barrierHdr) == 0) {
+            npc_counter_add(debugCounter[DEBUG_CNTID_DROP_NO_BARHDR], 1);
+            BarrierDropExit();
+        }
+        if (barrierHdr.Magic != BARRIER_MAGIC) {
+            npc_counter_add(debugCounter[DEBUG_CNTID_DROP_BAD_MAGIC], 1);
+            BarrierDropExit();
+        }
+        if (barrierHdr.Rank != BARRIER_CONTROLLER_RANK) {
+            npc_counter_add(debugCounter[DEBUG_CNTID_DROP_BAD_RANK], 1);
+            BarrierDropExit();
+        }
+        BarrierFanoutRelease();
+    }
+
+    if (udpHdr.DstPort == BARRIER_CONTROL_UDP_PORT) {
+        if ((inchan != WORKER1_IN_CHAN) &&
+            (inchan != WORKER2_IN_CHAN) &&
+            (inchan != WORKER3_IN_CHAN) &&
+            (inchan != WORKER4_IN_CHAN)) {
+            npc_counter_add(debugCounter[DEBUG_CNTID_DROP_WRONG_INCHAN], 1);
+            BarrierDropExit();
+        }
+        npc_intrinsic_tm_metadata.OutSubChan = CTRL_OUT_CHAN;
+        npc_intrinsic_tm_metadata.Sqid       = CTRL_OUT_SQID;
+        npc_intrinsic_tm_metadata.Qindex     = PRIORITY_ONE;
+        npc_pkt_add_sys_hdr();
+        npc_pkt_deparser();
+        npc_pkt_send();
+        npc_counter_add(debugCounter[DEBUG_CNTID_TX_CONTROL], 1);
+        npc_exit();
+    }
+
+    if (udpHdr.DstPort != BARRIER_ARRIVE_UDP_PORT) {
+        npc_counter_add(debugCounter[DEBUG_CNTID_DROP_OTHER_UDP], 1);
+        BarrierDropExit();
+    }
+
+    if ((inchan != WORKER1_IN_CHAN) &&
+        (inchan != WORKER2_IN_CHAN) &&
+        (inchan != WORKER3_IN_CHAN) &&
+        (inchan != WORKER4_IN_CHAN)) {
+        npc_counter_add(debugCounter[DEBUG_CNTID_DROP_WRONG_INCHAN], 1);
+        BarrierDropExit();
+    }
+
+    if (npc_pkt_get_valid(barrierHdr) == 0) {
+        npc_counter_add(debugCounter[DEBUG_CNTID_DROP_NO_BARHDR], 1);
+        BarrierDropExit();
+    }
+
+    if (barrierHdr.Magic != BARRIER_MAGIC) {
+        npc_counter_add(debugCounter[DEBUG_CNTID_DROP_BAD_MAGIC], 1);
+        BarrierDropExit();
+    }
+
+    uint<ROUND_TABLE_INDEX_WIDTH> slotIdx = barrierHdr.RoundId[(ROUND_TABLE_INDEX_WIDTH-1):0];
+    uint<32> seenCount;
+    seenCount = 0;
+
+    if (inchan == WORKER1_IN_CHAN) {
+        if (barrierHdr.Rank != 1) {
+            npc_counter_add(debugCounter[DEBUG_CNTID_DROP_BAD_RANK], 1);
+            BarrierDropExit();
+        }
+        npc_counter_add(seenRank1[slotIdx], 1, seenCount);
+    }
+
+    if (inchan == WORKER2_IN_CHAN) {
+        if (barrierHdr.Rank != 2) {
+            npc_counter_add(debugCounter[DEBUG_CNTID_DROP_BAD_RANK], 1);
+            BarrierDropExit();
+        }
+        npc_counter_add(seenRank2[slotIdx], 1, seenCount);
+    }
+
+    if (inchan == WORKER3_IN_CHAN) {
+        if (barrierHdr.Rank != 3) {
+            npc_counter_add(debugCounter[DEBUG_CNTID_DROP_BAD_RANK], 1);
+            BarrierDropExit();
+        }
+        npc_counter_add(seenRank3[slotIdx], 1, seenCount);
+    }
+
+    if (inchan == WORKER4_IN_CHAN) {
+        if (barrierHdr.Rank != 4) {
+            npc_counter_add(debugCounter[DEBUG_CNTID_DROP_BAD_RANK], 1);
+            BarrierDropExit();
+        }
+        npc_counter_add(seenRank4[slotIdx], 1, seenCount);
+    }
+
+    if (seenCount != 1) {
+        npc_counter_add(debugCounter[DEBUG_CNTID_DROP_DUP_RANK], 1);
+        if (inchan == WORKER1_IN_CHAN) { BarrierSelfAck(WORKER1_OUT_CHAN, WORKER1_OUT_SQID); }
+        if (inchan == WORKER2_IN_CHAN) { BarrierSelfAck(WORKER2_OUT_CHAN, WORKER2_OUT_SQID); }
+        if (inchan == WORKER3_IN_CHAN) { BarrierSelfAck(WORKER3_OUT_CHAN, WORKER3_OUT_SQID); }
+        if (inchan == WORKER4_IN_CHAN) { BarrierSelfAck(WORKER4_OUT_CHAN, WORKER4_OUT_SQID); }
+        BarrierDropExit();
+    }
+
+    uint<32> arrivals;
+    npc_counter_add(arrivalCounter[slotIdx], 1, arrivals);
+
+    if (arrivals == 1) {
+        uint<ROUND_TABLE_INDEX_WIDTH> wipeOff;
+        wipeOff = ROUND_WINDOW_N;
+        uint<ROUND_TABLE_INDEX_WIDTH> wipeIdx;
+        wipeIdx = slotIdx + wipeOff;
+
+        uint<32> wipeDummy;
+        npc_counter_read_clr(arrivalCounter[wipeIdx], wipeDummy);
+        npc_counter_read_clr(seenRank1[wipeIdx], wipeDummy);
+        npc_counter_read_clr(seenRank2[wipeIdx], wipeDummy);
+        npc_counter_read_clr(seenRank3[wipeIdx], wipeDummy);
+        npc_counter_read_clr(seenRank4[wipeIdx], wipeDummy);
+        npc_counter_add(debugCounter[DEBUG_CNTID_WIPE], 1);
+    }
+
+    if (arrivals != BARRIER_N) {
+        npc_counter_add(debugCounter[DEBUG_CNTID_BUFFERED], 1);
+        if (inchan == WORKER1_IN_CHAN) { BarrierSelfAck(WORKER1_OUT_CHAN, WORKER1_OUT_SQID); }
+        if (inchan == WORKER2_IN_CHAN) { BarrierSelfAck(WORKER2_OUT_CHAN, WORKER2_OUT_SQID); }
+        if (inchan == WORKER3_IN_CHAN) { BarrierSelfAck(WORKER3_OUT_CHAN, WORKER3_OUT_SQID); }
+        if (inchan == WORKER4_IN_CHAN) { BarrierSelfAck(WORKER4_OUT_CHAN, WORKER4_OUT_SQID); }
+        BarrierDropExit();
+    }
+
+    if (inchan == WORKER1_IN_CHAN) { BarrierSelfAckRep(WORKER1_OUT_CHAN, WORKER1_OUT_SQID); }
+    if (inchan == WORKER2_IN_CHAN) { BarrierSelfAckRep(WORKER2_OUT_CHAN, WORKER2_OUT_SQID); }
+    if (inchan == WORKER3_IN_CHAN) { BarrierSelfAckRep(WORKER3_OUT_CHAN, WORKER3_OUT_SQID); }
+    if (inchan == WORKER4_IN_CHAN) { BarrierSelfAckRep(WORKER4_OUT_CHAN, WORKER4_OUT_SQID); }
+
+    udpHdr.DstPort = BARRIER_RELEASE_UDP_PORT;
+    barrierHdr.Rank = BARRIER_CONTROLLER_RANK;
+    BarrierFanoutRelease();
+}
+
+NPCProgram(ParseEthernet(), main_control()) main;

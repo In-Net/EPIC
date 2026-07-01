@@ -1,0 +1,58 @@
+
+#ifndef __TYPES_CONSTANT_H__
+#define __TYPES_CONSTANT_H__
+
+#define BARRIER_N             4
+#define BARRIER_CONTROLLER_RANK 4
+
+#define WORKER1_IN_CHAN       220
+#define WORKER2_IN_CHAN       236
+#define WORKER3_IN_CHAN       0
+#define WORKER4_IN_CHAN       8
+
+#define WORKER1_OUT_CHAN      220
+#define WORKER1_OUT_SQID      440
+#define WORKER2_OUT_CHAN      236
+#define WORKER2_OUT_SQID      472
+#define WORKER3_OUT_CHAN      0
+#define WORKER3_OUT_SQID      0
+#define WORKER4_OUT_CHAN      8
+#define WORKER4_OUT_SQID      16
+
+#define CTRL_IN_CHAN          WORKER4_IN_CHAN
+#define CTRL_OUT_CHAN         WORKER4_OUT_CHAN
+#define CTRL_OUT_SQID         WORKER4_OUT_SQID
+
+#define BARRIER_ARRIVE_UDP_PORT   0x4260
+#define BARRIER_RELEASE_UDP_PORT  0x4261
+#define BARRIER_CONTROL_UDP_PORT  0x4262
+#define BARRIER_MAGIC             0xBA221E42
+
+#define PRIORITY_ZERO         0
+#define PRIORITY_ONE          1
+
+#define ROUND_TABLE_INDEX_WIDTH  18
+#define ROUND_TABLE_SIZE         (1 << ROUND_TABLE_INDEX_WIDTH)
+#define ROUND_WINDOW_N_WIDTH     17
+#define ROUND_WINDOW_N           (1 << ROUND_WINDOW_N_WIDTH)
+
+#define DEBUG_CNTID_NUM             20
+enum DEBUG_CNTID_E
+{
+    DEBUG_CNTID_RECV_PKTS         = 0,
+    DEBUG_CNTID_TX_RELEASE        = 1,
+    DEBUG_CNTID_TX_CONTROL        = 2,
+    DEBUG_CNTID_BUFFERED          = 3,
+    DEBUG_CNTID_DROP_NON_ETH      = 4,
+    DEBUG_CNTID_DROP_NON_UDP      = 5,
+    DEBUG_CNTID_DROP_OTHER_UDP    = 6,
+    DEBUG_CNTID_DROP_WRONG_INCHAN = 7,
+    DEBUG_CNTID_DROP_NO_BARHDR    = 8,
+    DEBUG_CNTID_WIPE              = 9,
+    DEBUG_CNTID_DROP_BAD_MAGIC    = 10,
+    DEBUG_CNTID_DROP_BAD_RANK     = 11,
+    DEBUG_CNTID_DROP_DUP_RANK     = 12,
+    DEBUG_CNTID_MAX               = (DEBUG_CNTID_NUM - 1)
+};
+
+#endif

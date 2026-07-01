@@ -1,0 +1,644 @@
+
+#include "lib/npc_arch.h"
+#include "types.h"
+#include "headers.h"
+
+NPCCounter<uint<32>> debugCounter[DEBUG_CNTID_NUM];
+NPCCounter<uint<32>> fanin[EPIC_FANIN_SIZE];
+NPCCounter<uint<32>> senderQp[EPIC_SENDERQP_SIZE];
+
+@control void EpicDropExit()
+{
+    npc_pkt_drop();
+    npc_exit();
+}
+
+@control void EpicForward(CHANNEL_T outChan, SQID_T outSqid)
+{
+    npc_intrinsic_tm_metadata.OutSubChan = outChan;
+    npc_intrinsic_tm_metadata.Sqid       = outSqid;
+    npc_intrinsic_tm_metadata.Qindex     = PRIORITY_ONE;
+    npc_pkt_add_sys_hdr();
+    npc_pkt_deparser();
+    npc_pkt_send();
+    npc_counter_add(debugCounter[DEBUG_CNTID_TX_FWD], 1);
+    npc_exit();
+}
+
+@control void EpicEchoToSender(CHANNEL_T outChan, SQID_T outSqid)
+{
+    uint<24>    sQpn = payloadHead.x0[23:0];
+    MAC_ADDR_T  sMac = ethHdr.SrcMac;
+    IPV4_ADDR_T sIp  = ipv4Hdr.Sip;
+
+    ethHdr.DstMac = sMac;
+    ethHdr.SrcMac = SWITCH_MAC;
+
+    ipv4Hdr.Dip      = sIp;
+    ipv4Hdr.Sip      = VEP_IP;
+    ipv4Hdr.TotalLen = RESULT_IP_TOTAL_LEN;
+    ipv4Hdr.Checksum = 0;
+    uint<16> ipcke = 0;
+    npc_checksum16_calc(ipcke, ipv4Hdr);
+    ipv4Hdr.Checksum = ipcke;
+
+    udpHdr.PktLength = RESULT_UDP_PKT_LEN;
+    udpHdr.Checksum  = 0;
+
+    bthHdr.Opcode = BTH_OP_UC_SEND_ONLY;
+    bthHdr.DstQP  = sQpn;
+    bthHdr.AckReq = 0;
+
+    npc_intrinsic_tm_metadata.OutSubChan = outChan;
+    npc_intrinsic_tm_metadata.Sqid       = outSqid;
+    npc_intrinsic_tm_metadata.Qindex     = PRIORITY_ONE;
+    npc_pkt_add_sys_hdr();
+    npc_pkt_deparser();
+    npc_pkt_send();
+
+    npc_counter_add(debugCounter[DEBUG_CNTID_TX_RESULT], 1);
+    npc_exit();
+}
+
+@control void EpicFanoutChild(CHANNEL_T outChan, SQID_T outSqid,
+                             MAC_ADDR_T dmac, IPV4_ADDR_T dip, uint<24> qpn)
+{
+    ethHdr.DstMac = dmac;
+    ethHdr.SrcMac = SWITCH_MAC;
+
+    ipv4Hdr.Dip      = dip;
+    ipv4Hdr.Checksum = 0;
+    uint<16> ipckf = 0;
+    npc_checksum16_calc(ipckf, ipv4Hdr);
+    ipv4Hdr.Checksum = ipckf;
+
+    bthHdr.DstQP = qpn;
+
+    npc_intrinsic_tm_metadata.OutSubChan = outChan;
+    npc_intrinsic_tm_metadata.Sqid       = outSqid;
+    npc_intrinsic_tm_metadata.Qindex     = PRIORITY_ONE;
+    npc_pkt_add_sys_hdr();
+    npc_pkt_deparser();
+    npc_pkt_replicate();
+
+    npc_counter_add(debugCounter[DEBUG_CNTID_TX_FANOUT], 1);
+}
+
+@control void EpicFanoutChildSend(CHANNEL_T outChan, SQID_T outSqid,
+                             MAC_ADDR_T dmac, IPV4_ADDR_T dip, uint<24> qpn)
+{
+    ethHdr.DstMac = dmac;
+    ethHdr.SrcMac = SWITCH_MAC;
+
+    ipv4Hdr.Dip      = dip;
+    ipv4Hdr.Checksum = 0;
+    uint<16> ipcks = 0;
+    npc_checksum16_calc(ipcks, ipv4Hdr);
+    ipv4Hdr.Checksum = ipcks;
+
+    bthHdr.DstQP = qpn;
+
+    npc_intrinsic_tm_metadata.OutSubChan = outChan;
+    npc_intrinsic_tm_metadata.Sqid       = outSqid;
+    npc_intrinsic_tm_metadata.Qindex     = PRIORITY_ONE;
+    npc_pkt_add_sys_hdr();
+    npc_pkt_deparser();
+    npc_pkt_send();
+
+    npc_counter_add(debugCounter[DEBUG_CNTID_TX_FANOUT], 1);
+    npc_exit();
+}
+
+@control void EpicFanoutChildNoCk(CHANNEL_T outChan, SQID_T outSqid,
+                             MAC_ADDR_T dmac, IPV4_ADDR_T dip, uint<24> qpn)
+{
+    ethHdr.DstMac = dmac;
+    ethHdr.SrcMac = SWITCH_MAC;
+    ipv4Hdr.Dip   = dip;
+    bthHdr.DstQP  = qpn;
+    npc_intrinsic_tm_metadata.OutSubChan = outChan;
+    npc_intrinsic_tm_metadata.Sqid       = outSqid;
+    npc_intrinsic_tm_metadata.Qindex     = PRIORITY_ONE;
+    npc_pkt_add_sys_hdr();
+    npc_pkt_deparser();
+    npc_pkt_replicate();
+    npc_counter_add(debugCounter[DEBUG_CNTID_TX_FANOUT], 1);
+}
+
+@control void EpicEchoFull(CHANNEL_T outChan, SQID_T outSqid)
+{
+    MAC_ADDR_T  sMac = ethHdr.SrcMac;
+    IPV4_ADDR_T sIp  = ipv4Hdr.Sip;
+
+    ethHdr.DstMac = sMac;
+    ethHdr.SrcMac = SWITCH_MAC;
+
+    ipv4Hdr.Dip      = sIp;
+    ipv4Hdr.Sip      = VEP_IP;
+    ipv4Hdr.Checksum = 0;
+    uint<16> ipckE = 0;
+    npc_checksum16_calc(ipckE, ipv4Hdr);
+    ipv4Hdr.Checksum = ipckE;
+
+    udpHdr.Checksum  = 0;
+
+
+    npc_intrinsic_tm_metadata.OutSubChan = outChan;
+    npc_intrinsic_tm_metadata.Sqid       = outSqid;
+    npc_intrinsic_tm_metadata.Qindex     = PRIORITY_ONE;
+    npc_pkt_add_sys_hdr();
+    npc_pkt_deparser();
+    npc_pkt_send();
+    npc_exit();
+}
+
+
+@control void EpicSyncBarrier()
+{
+    npc_counter_add(debugCounter[DEBUG_CNTID_SYNC_IN], 1);
+    uint<24> sq = dethHdr.SrcQP;
+    if (inchannel == RANK1_IN_CHAN) { npc_counter_add(fanin[1], sq[15:0]); npc_counter_add(fanin[2], sq[23:16]); }
+    if (inchannel == RANK2_IN_CHAN) { npc_counter_add(fanin[3], sq[15:0]); npc_counter_add(fanin[4], sq[23:16]); }
+    if (inchannel == RANK3_IN_CHAN) { npc_counter_add(fanin[5], sq[15:0]); npc_counter_add(fanin[6], sq[23:16]); }
+    uint<32> res;
+    npc_counter_add(fanin[0], 1, res);
+    if (res < SYNC_FULL) {
+        npc_counter_add(debugCounter[DEBUG_CNTID_BUFFERED], 1);
+        npc_pkt_drop();
+        npc_exit();
+    }
+    uint<32> rc; npc_counter_read_clr(fanin[0], rc);
+    uint<32> qLo; uint<32> qHi;
+    uint<32> q1; uint<32> q2; uint<32> q3;
+    npc_counter_read_clr(fanin[1], qLo);  npc_counter_read_clr(fanin[2], qHi);  q1 = qHi << 16;  q1 = q1 + qLo;
+    npc_counter_read_clr(fanin[3], qLo);  npc_counter_read_clr(fanin[4], qHi);  q2 = qHi << 16;  q2 = q2 + qLo;
+    npc_counter_read_clr(fanin[5], qLo);  npc_counter_read_clr(fanin[6], qHi);  q3 = qHi << 16;  q3 = q3 + qLo;
+    ipv4Hdr.Sip     = VEP_IP;
+    udpHdr.Checksum = 0;
+    EpicFanoutChild(WORKER1_OUT_CHAN, WORKER1_OUT_SQID, WORKER1_MAC, RANK1_DOWN_IP, q1[23:0]);
+    EpicFanoutChild(WORKER2_OUT_CHAN, WORKER2_OUT_SQID, WORKER2_MAC, RANK2_DOWN_IP, q2[23:0]);
+    EpicFanoutChild(WORKER3_OUT_CHAN, WORKER3_OUT_SQID, WORKER3_MAC, RANK3_DOWN_IP, q3[23:0]);
+    npc_counter_add(debugCounter[DEBUG_CNTID_SYNC_REL], 1);
+    npc_pkt_drop();
+    npc_exit();
+}
+
+@control void EpicSelfAck(CHANNEL_T outChan, SQID_T outSqid,
+                          MAC_ADDR_T dmac, IPV4_ADDR_T dip, uint<24> qpn)
+{
+    ethHdr.DstMac = dmac;
+    ethHdr.SrcMac = SWITCH_MAC;
+
+    ipv4Hdr.Dip      = dip;
+    ipv4Hdr.Sip      = VEP_IP;
+    ipv4Hdr.TotalLen = ACK_IP_TOTAL_LEN;
+    ipv4Hdr.Checksum = 0;
+    uint<16> ipckA = 0;
+    npc_checksum16_calc(ipckA, ipv4Hdr);
+    ipv4Hdr.Checksum = ipckA;
+
+    udpHdr.PktLength = ACK_UDP_PKT_LEN;
+    udpHdr.Checksum  = 0;
+
+    bthHdr.Opcode = BTH_OP_RC_ACK;
+    bthHdr.DstQP  = qpn;
+    bthHdr.AckReq = 0;
+
+    uint<32> aeth = AETH_SYNDROME_ACK;
+    aeth = aeth << 24;
+    uint<32> amsn = bthHdr.PSN;
+    aeth = aeth + amsn;
+    payloadHead.x0 = aeth;
+    npc_pkt_set_valid(payloadTail, false);
+
+    npc_intrinsic_tm_metadata.OutSubChan = outChan;
+    npc_intrinsic_tm_metadata.Sqid       = outSqid;
+    npc_intrinsic_tm_metadata.Qindex     = PRIORITY_ONE;
+    npc_pkt_add_sys_hdr();
+    npc_pkt_deparser();
+    npc_pkt_send();
+
+    npc_counter_add(debugCounter[DEBUG_CNTID_TX_ACK], 1);
+    npc_exit();
+}
+
+@control void EpicFaninFanout(CHANNEL_T outChan, SQID_T outSqid)
+{
+    uint<EPIC_SLOT_N_WIDTH> idx     = bthHdr.PSN[(EPIC_SLOT_N_WIDTH-1):0];
+    uint<24> commonQpn = payloadHead.x0[23:0];
+
+    MAC_ADDR_T  sMac = ethHdr.SrcMac;
+    IPV4_ADDR_T sIp  = ipv4Hdr.Sip;
+    uint<24>    sQpn = payloadHead.x0[23:0];
+
+#ifndef ONLY_FAIN_NOWIPE
+    uint<EPIC_SLOT_N_WIDTH> wipeIdx = bthHdr.PSN[(EPIC_SLOT_N_WIDTH-1):0] - EPIC_MW;
+    uint<32> wipeDummy;
+    npc_counter_read_clr(fanin[wipeIdx], wipeDummy);
+    npc_counter_add(debugCounter[DEBUG_CNTID_WIPE], 1);
+#endif
+
+    uint<32> res;
+    npc_counter_add(fanin[idx], 1, res);
+
+    if (res < EPIC_FANIN_FULL) {
+        npc_counter_add(debugCounter[DEBUG_CNTID_BUFFERED], 1);
+        EpicSelfAck(outChan, outSqid, sMac, sIp, sQpn);
+    }
+
+    if (res > EPIC_FANIN_FULL) {
+        npc_counter_add(debugCounter[DEBUG_CNTID_REACK], 1);
+        EpicSelfAck(outChan, outSqid, sMac, sIp, sQpn);
+    }
+
+    ipv4Hdr.Sip   = VEP_IP;
+    udpHdr.Checksum = 0;
+    bthHdr.AckReq = 0;
+    npc_counter_add(debugCounter[DEBUG_CNTID_TX_RESULT], 1);
+    EpicFanoutChild(WORKER1_OUT_CHAN, WORKER1_OUT_SQID, WORKER1_MAC, RANK1_DOWN_IP, commonQpn);
+    EpicFanoutChild(WORKER2_OUT_CHAN, WORKER2_OUT_SQID, WORKER2_MAC, RANK2_DOWN_IP, commonQpn);
+    EpicFanoutChild(WORKER3_OUT_CHAN, WORKER3_OUT_SQID, WORKER3_MAC, RANK3_DOWN_IP, commonQpn);
+    EpicFanoutChild(WORKER4_OUT_CHAN, WORKER4_OUT_SQID, WORKER4_MAC, RANK4_DOWN_IP, commonQpn);
+    EpicSelfAck(outChan, outSqid, sMac, sIp, sQpn);
+}
+
+@control void EpicLeaderFanout(CHANNEL_T outChan, SQID_T outSqid)
+{
+    uint<24> commonQpn = payloadHead.x0[23:0];
+    ipv4Hdr.Sip   = VEP_IP;
+    udpHdr.Checksum = 0;
+    bthHdr.AckReq = 0;
+    npc_counter_add(debugCounter[DEBUG_CNTID_TX_RESULT], 1);
+    EpicFanoutChild(WORKER1_OUT_CHAN, WORKER1_OUT_SQID, WORKER1_MAC, RANK1_DOWN_IP, commonQpn);
+    EpicFanoutChild(WORKER2_OUT_CHAN, WORKER2_OUT_SQID, WORKER2_MAC, RANK2_DOWN_IP, commonQpn);
+    EpicFanoutChild(WORKER3_OUT_CHAN, WORKER3_OUT_SQID, WORKER3_MAC, RANK3_DOWN_IP, commonQpn);
+    EpicFanoutChild(WORKER4_OUT_CHAN, WORKER4_OUT_SQID, WORKER4_MAC, RANK4_DOWN_IP, commonQpn);
+    npc_pkt_drop();
+    npc_exit();
+}
+
+@control void EpicReduceToRoot()
+{
+    uint<EPIC_FANIN_N_WIDTH> idx     = bthHdr.PSN[(EPIC_FANIN_N_WIDTH-1):0];
+    uint<24> rootQpn = payloadHead.x0[23:0];
+
+#if !defined(ONLY_FAIN_NOWIPE) && !defined(ONLY_FAIN_REDUCE_TRIGCLR)
+    uint<EPIC_SLOT_N_WIDTH> wipeIdx = bthHdr.PSN[(EPIC_SLOT_N_WIDTH-1):0] - EPIC_MW;
+    uint<32> wipeDummy;
+    npc_counter_read_clr(fanin[wipeIdx], wipeDummy);
+    npc_counter_add(debugCounter[DEBUG_CNTID_WIPE], 1);
+#endif
+
+    uint<32> res;
+    npc_counter_add(fanin[idx], 1, res);
+
+    if (res < EPIC_FANIN_FULL) {
+        npc_counter_add(debugCounter[DEBUG_CNTID_BUFFERED], 1);
+        npc_pkt_drop();
+        npc_exit();
+    }
+
+    if (res > EPIC_FANIN_FULL) {
+        npc_counter_add(debugCounter[DEBUG_CNTID_REACK], 1);
+        npc_pkt_drop();
+        npc_exit();
+    }
+
+#ifdef ONLY_FAIN_REDUCE_TRIGCLR
+    uint<32> clrDummy;
+    npc_counter_read_clr(fanin[idx], clrDummy);
+    npc_counter_add(debugCounter[DEBUG_CNTID_WIPE], 1);
+#endif
+
+    ipv4Hdr.Sip     = VEP_IP;
+    udpHdr.Checksum = 0;
+    bthHdr.AckReq   = 0;
+    npc_counter_add(debugCounter[DEBUG_CNTID_TX_RESULT], 1);
+    EpicFanoutChildSend(ROOT_OUT_CHAN, ROOT_OUT_SQID, ROOT_MAC, RANK4_DOWN_IP, rootQpn);
+}
+
+#if defined(ONLY_FAIN_REDUCE) && (defined(REDUCE_ACK_A) || defined(REDUCE_ACK_B))
+#if defined(REDUCE_ACK_A)
+#define REDUCE_ACK_FULL 4
+#else
+#define REDUCE_ACK_FULL 3
+#endif
+@control void EpicReduceAckBarrier()
+{
+    npc_counter_add(debugCounter[DEBUG_CNTID_SYNC_IN], 1);
+    uint<24> sq = dethHdr.SrcQP;
+    if (inchannel == RANK1_IN_CHAN) { npc_counter_add(senderQp[1], sq[15:0]); npc_counter_add(senderQp[2], sq[23:16]); }
+    if (inchannel == RANK2_IN_CHAN) { npc_counter_add(senderQp[3], sq[15:0]); npc_counter_add(senderQp[4], sq[23:16]); }
+    if (inchannel == RANK3_IN_CHAN) { npc_counter_add(senderQp[5], sq[15:0]); npc_counter_add(senderQp[6], sq[23:16]); }
+    uint<32> res;
+    npc_counter_add(senderQp[0], 1, res);
+    if (res < REDUCE_ACK_FULL) {
+        npc_counter_add(debugCounter[DEBUG_CNTID_BUFFERED], 1);
+        npc_pkt_drop();
+        npc_exit();
+    }
+    uint<32> rc; npc_counter_read_clr(senderQp[0], rc);
+    uint<32> qLo; uint<32> qHi; uint<32> q1; uint<32> q2; uint<32> q3;
+    npc_counter_read_clr(senderQp[1], qLo); npc_counter_read_clr(senderQp[2], qHi); q1 = qHi << 16; q1 = q1 + qLo;
+    npc_counter_read_clr(senderQp[3], qLo); npc_counter_read_clr(senderQp[4], qHi); q2 = qHi << 16; q2 = q2 + qLo;
+    npc_counter_read_clr(senderQp[5], qLo); npc_counter_read_clr(senderQp[6], qHi); q3 = qHi << 16; q3 = q3 + qLo;
+    ipv4Hdr.Sip     = VEP_IP;
+    udpHdr.Checksum = 0;
+    EpicFanoutChild(WORKER1_OUT_CHAN, WORKER1_OUT_SQID, WORKER1_MAC, RANK1_DOWN_IP, q1[23:0]);
+    EpicFanoutChild(WORKER2_OUT_CHAN, WORKER2_OUT_SQID, WORKER2_MAC, RANK2_DOWN_IP, q2[23:0]);
+    EpicFanoutChild(WORKER3_OUT_CHAN, WORKER3_OUT_SQID, WORKER3_MAC, RANK3_DOWN_IP, q3[23:0]);
+    npc_counter_add(debugCounter[DEBUG_CNTID_SYNC_REL], 1);
+    npc_pkt_drop();
+    npc_exit();
+}
+#endif
+
+#if defined(ONLY_FAIN_ALLREDUCE) && (defined(ALLREDUCE_ACK_A) || defined(ALLREDUCE_ACK_B))
+@control void EpicAllreduceAckBarrier()
+{
+    npc_counter_add(debugCounter[DEBUG_CNTID_SYNC_IN], 1);
+    uint<24> sq = dethHdr.SrcQP;
+    if (inchannel == RANK1_IN_CHAN) { npc_counter_add(senderQp[1], sq[15:0]); npc_counter_add(senderQp[2], sq[23:16]); }
+    if (inchannel == RANK2_IN_CHAN) { npc_counter_add(senderQp[3], sq[15:0]); npc_counter_add(senderQp[4], sq[23:16]); }
+    if (inchannel == RANK3_IN_CHAN) { npc_counter_add(senderQp[5], sq[15:0]); npc_counter_add(senderQp[6], sq[23:16]); }
+    if (inchannel == RANK4_IN_CHAN) { npc_counter_add(senderQp[7], sq[15:0]); npc_counter_add(senderQp[8], sq[23:16]); }
+    uint<32> res;
+    npc_counter_add(senderQp[0], 1, res);
+    if (res < 4) {
+        npc_counter_add(debugCounter[DEBUG_CNTID_BUFFERED], 1);
+        npc_pkt_drop();
+        npc_exit();
+    }
+    uint<32> rc; npc_counter_read_clr(senderQp[0], rc);
+    uint<32> qLo; uint<32> qHi; uint<32> q1; uint<32> q2; uint<32> q3; uint<32> q4;
+    npc_counter_read_clr(senderQp[1], qLo); npc_counter_read_clr(senderQp[2], qHi); q1 = qHi << 16; q1 = q1 + qLo;
+    npc_counter_read_clr(senderQp[3], qLo); npc_counter_read_clr(senderQp[4], qHi); q2 = qHi << 16; q2 = q2 + qLo;
+    npc_counter_read_clr(senderQp[5], qLo); npc_counter_read_clr(senderQp[6], qHi); q3 = qHi << 16; q3 = q3 + qLo;
+    npc_counter_read_clr(senderQp[7], qLo); npc_counter_read_clr(senderQp[8], qHi); q4 = qHi << 16; q4 = q4 + qLo;
+    ipv4Hdr.Sip     = VEP_IP;
+    udpHdr.Checksum = 0;
+    EpicFanoutChild(WORKER1_OUT_CHAN, WORKER1_OUT_SQID, WORKER1_MAC, RANK1_DOWN_IP, q1[23:0]);
+    EpicFanoutChild(WORKER2_OUT_CHAN, WORKER2_OUT_SQID, WORKER2_MAC, RANK2_DOWN_IP, q2[23:0]);
+    EpicFanoutChild(WORKER3_OUT_CHAN, WORKER3_OUT_SQID, WORKER3_MAC, RANK3_DOWN_IP, q3[23:0]);
+    EpicFanoutChildSend(WORKER4_OUT_CHAN, WORKER4_OUT_SQID, WORKER4_MAC, RANK4_DOWN_IP, q4[23:0]);
+    npc_counter_add(debugCounter[DEBUG_CNTID_SYNC_REL], 1);
+    npc_pkt_drop();
+    npc_exit();
+}
+#endif
+
+@control void EpicBroadcast()
+{
+    uint<24> commonQpn = payloadHead.x0[23:0];
+    ipv4Hdr.Sip     = VEP_IP;
+    udpHdr.Checksum = 0;
+    bthHdr.AckReq   = 0;
+    npc_counter_add(debugCounter[DEBUG_CNTID_TX_RESULT], 1);
+#if defined(BCAST_DEG) && (BCAST_DEG == 1)
+  #if defined(BCAST_DEG1_TGT) && (BCAST_DEG1_TGT == 4)
+    EpicFanoutChildSend(WORKER4_OUT_CHAN, WORKER4_OUT_SQID, WORKER4_MAC, RANK4_DOWN_IP, commonQpn);
+  #elif defined(BCAST_DEG1_TGT) && (BCAST_DEG1_TGT == 3)
+    EpicFanoutChildSend(WORKER3_OUT_CHAN, WORKER3_OUT_SQID, WORKER3_MAC, RANK3_DOWN_IP, commonQpn);
+  #else
+    EpicFanoutChildSend(WORKER2_OUT_CHAN, WORKER2_OUT_SQID, WORKER2_MAC, RANK2_DOWN_IP, commonQpn);
+  #endif
+#elif defined(BCAST_DEG) && (BCAST_DEG == 2)
+    EpicFanoutChild(WORKER2_OUT_CHAN, WORKER2_OUT_SQID, WORKER2_MAC, RANK2_DOWN_IP, commonQpn);
+    EpicFanoutChildSend(WORKER3_OUT_CHAN, WORKER3_OUT_SQID, WORKER3_MAC, RANK3_DOWN_IP, commonQpn);
+#elif defined(BCAST_REV)
+    EpicFanoutChild(WORKER4_OUT_CHAN, WORKER4_OUT_SQID, WORKER4_MAC, RANK4_DOWN_IP, commonQpn);
+    EpicFanoutChild(WORKER3_OUT_CHAN, WORKER3_OUT_SQID, WORKER3_MAC, RANK3_DOWN_IP, commonQpn);
+    EpicFanoutChildSend(WORKER2_OUT_CHAN, WORKER2_OUT_SQID, WORKER2_MAC, RANK2_DOWN_IP, commonQpn);
+#else
+    EpicFanoutChild(WORKER2_OUT_CHAN, WORKER2_OUT_SQID, WORKER2_MAC, RANK2_DOWN_IP, commonQpn);
+    EpicFanoutChild(WORKER3_OUT_CHAN, WORKER3_OUT_SQID, WORKER3_MAC, RANK3_DOWN_IP, commonQpn);
+    EpicFanoutChildSend(WORKER4_OUT_CHAN, WORKER4_OUT_SQID, WORKER4_MAC, RANK4_DOWN_IP, commonQpn);
+#endif
+}
+
+@control void main_control()
+{
+
+    CHANNEL_T inchannel = npc_intrinsic_metadata.InSubChan[7:0];
+
+    if ((npc_intrinsic_metadata.PortType != PORT_TYPE_ETH) &&
+        (npc_intrinsic_metadata.PortType != PORT_TYPE_LB)) {
+        npc_counter_add(debugCounter[DEBUG_CNTID_DROP_NON_ETH], 1);
+        EpicDropExit();
+    }
+
+    if (npc_pkt_get_valid(bthHdr) == 1) {
+        uint<8> op = bthHdr.Opcode;
+
+#if ONLY_FAIN_REDUCE_RR
+        if (ipv4Hdr.Dip == VEP_IP) {
+            if (((op >= BTH_OP_RC_WRITE_FIRST) && (op <= BTH_OP_RC_WRITE_ONLY)) ||
+                ((op >= BTH_OP_UC_WRITE_FIRST) && (op <= BTH_OP_UC_WRITE_ONLY)) ||
+                (op == BTH_OP_RC_ACK)) {
+                if (op == BTH_OP_RC_ACK) { npc_counter_add(debugCounter[DEBUG_CNTID_TX_ACK], 1); }
+                else                     { npc_counter_add(debugCounter[DEBUG_CNTID_UP_DATA], 1); }
+                if (inchannel == RANK1_IN_CHAN) { EpicEchoFull(WORKER1_OUT_CHAN, WORKER1_OUT_SQID); }
+                if (inchannel == RANK2_IN_CHAN) { EpicEchoFull(WORKER2_OUT_CHAN, WORKER2_OUT_SQID); }
+                if (inchannel == RANK3_IN_CHAN) { EpicEchoFull(WORKER3_OUT_CHAN, WORKER3_OUT_SQID); }
+                EpicDropExit();
+            }
+            if (op == BTH_OP_UD_SEND_ONLY) {
+                EpicSyncBarrier();
+            }
+        }
+#endif
+
+#if ONLY_FAIN_ECHO && !ONLY_FAIN_BCAST
+        if ((op <= BTH_OP_RC_SEND_ONLY) || (op == BTH_OP_RC_ACK) ||
+            ((op >= BTH_OP_UC_SEND_FIRST) && (op <= BTH_OP_UC_SEND_LAST_IMM))) {
+            if (ipv4Hdr.Dip == VEP_IP) {
+
+                if (inchannel == RANK1_IN_CHAN) { EpicEchoFull(WORKER1_OUT_CHAN, WORKER1_OUT_SQID); }
+                if (inchannel == RANK2_IN_CHAN) { EpicEchoFull(WORKER2_OUT_CHAN, WORKER2_OUT_SQID); }
+                if (inchannel == RANK3_IN_CHAN) { EpicEchoFull(WORKER3_OUT_CHAN, WORKER3_OUT_SQID); }
+                if (inchannel == RANK4_IN_CHAN) { EpicEchoFull(WORKER4_OUT_CHAN, WORKER4_OUT_SQID); }
+                EpicDropExit();
+            }
+        }
+#endif
+
+#if ONLY_FAIN_BCAST
+        if ((op >= BTH_OP_UC_SEND_FIRST) && (op <= BTH_OP_UC_SEND_LAST_IMM)) {
+            if (ipv4Hdr.Dip == VEP_IP) {
+                if (inchannel == RANK1_IN_CHAN) {
+                    npc_counter_add(debugCounter[DEBUG_CNTID_UP_DATA], 1);
+                    EpicBroadcast();
+                }
+                EpicDropExit();
+            }
+        }
+#endif
+
+#if defined(ONLY_FAIN_REDUCE) && (defined(REDUCE_ACK_A) || defined(REDUCE_ACK_B))
+        if (op == BTH_OP_UD_SEND_ONLY) {
+            if (ipv4Hdr.Dip == VEP_IP) { EpicReduceAckBarrier(); }
+            EpicDropExit();
+        }
+#endif
+
+#if defined(ONLY_FAIN_ALLREDUCE) && (defined(ALLREDUCE_ACK_A) || defined(ALLREDUCE_ACK_B))
+        if (op == BTH_OP_UD_SEND_ONLY) {
+            if (ipv4Hdr.Dip == VEP_IP) { EpicAllreduceAckBarrier(); }
+            EpicDropExit();
+        }
+#endif
+
+        if (op == BTH_OP_UC_SEND_ONLY) {
+            IPV4_ADDR_T dip = ipv4Hdr.Dip;
+            if (dip == VEP_IP) {
+                npc_counter_add(debugCounter[DEBUG_CNTID_UP_DATA], 1);
+
+                if ((inchannel != RANK1_IN_CHAN) &&
+                    (inchannel != RANK2_IN_CHAN) &&
+                    (inchannel != RANK3_IN_CHAN) &&
+                    (inchannel != RANK4_IN_CHAN)) {
+                    npc_counter_add(debugCounter[DEBUG_CNTID_SKEW_ERR], 1);
+                    EpicDropExit();
+                }
+
+#if ONLY_FAIN_ECHO
+#if ONLY_FAIN_BCAST
+                if (inchannel == RANK1_IN_CHAN) { EpicBroadcast(); }
+                EpicDropExit();
+#elif ONLY_FAIN_LEADER_FANOUT4
+                if (inchannel == RANK1_IN_CHAN) { EpicLeaderFanout(WORKER1_OUT_CHAN, WORKER1_OUT_SQID); }
+                EpicDropExit();
+#elif ONLY_FAIN_NOBARRIER
+                if (inchannel == RANK1_IN_CHAN) { EpicEchoToSender(WORKER1_OUT_CHAN, WORKER1_OUT_SQID); }
+                if (inchannel == RANK2_IN_CHAN) { EpicEchoToSender(WORKER2_OUT_CHAN, WORKER2_OUT_SQID); }
+                if (inchannel == RANK3_IN_CHAN) { EpicEchoToSender(WORKER3_OUT_CHAN, WORKER3_OUT_SQID); }
+                if (inchannel == RANK4_IN_CHAN) { EpicEchoToSender(WORKER4_OUT_CHAN, WORKER4_OUT_SQID); }
+                EpicDropExit();
+#elif ONLY_FAIN_REDUCE
+                if (inchannel == RANK1_IN_CHAN) { EpicReduceToRoot(); }
+                if (inchannel == RANK2_IN_CHAN) { EpicReduceToRoot(); }
+                if (inchannel == RANK3_IN_CHAN) { EpicReduceToRoot(); }
+                EpicDropExit();
+#elif ONLY_FAIN_ALLREDUCE
+                if (inchannel == RANK1_IN_CHAN) { EpicReduceToRoot(); }
+                if (inchannel == RANK2_IN_CHAN) { EpicReduceToRoot(); }
+                if (inchannel == RANK3_IN_CHAN) { EpicReduceToRoot(); }
+                if (inchannel == RANK4_IN_CHAN) { EpicReduceToRoot(); }
+                EpicDropExit();
+#else
+                if (inchannel == RANK1_IN_CHAN) { EpicFaninFanout(WORKER1_OUT_CHAN, WORKER1_OUT_SQID); }
+                if (inchannel == RANK2_IN_CHAN) { EpicFaninFanout(WORKER2_OUT_CHAN, WORKER2_OUT_SQID); }
+#if !defined(ONLY_FAIN_FANIN2)
+                if (inchannel == RANK3_IN_CHAN) { EpicFaninFanout(WORKER3_OUT_CHAN, WORKER3_OUT_SQID); }
+#endif
+#if !defined(ONLY_FAIN_FANIN2) && !defined(ONLY_FAIN_FANIN3)
+                if (inchannel == RANK4_IN_CHAN) { EpicFaninFanout(WORKER4_OUT_CHAN, WORKER4_OUT_SQID); }
+#endif
+                EpicDropExit();
+#endif
+#else
+                uint<EPIC_SLOT_N_WIDTH> idx = bthHdr.PSN[(EPIC_SLOT_N_WIDTH-1):0];
+
+#if ONLY_FAIN_COMMON_QP
+                uint<24> commonQpn = payloadHead.x0[23:0];
+#else
+                uint<EPIC_SENDERQP_WIDTH> sqBase;
+                uint<EPIC_SENDERQP_WIDTH> sqIdx;
+                if (inchannel == RANK1_IN_CHAN) {
+                    sqBase = SENDERQP_LO_BASE(0);  sqIdx = sqBase + idx;  npc_counter_add(senderQp[sqIdx], payloadHead.x0[15:0]);
+                    sqBase = SENDERQP_HI_BASE(0);  sqIdx = sqBase + idx;  npc_counter_add(senderQp[sqIdx], payloadHead.x0[23:16]);
+                }
+                if (inchannel == RANK2_IN_CHAN) {
+                    sqBase = SENDERQP_LO_BASE(1);  sqIdx = sqBase + idx;  npc_counter_add(senderQp[sqIdx], payloadHead.x0[15:0]);
+                    sqBase = SENDERQP_HI_BASE(1);  sqIdx = sqBase + idx;  npc_counter_add(senderQp[sqIdx], payloadHead.x0[23:16]);
+                }
+                if (inchannel == RANK3_IN_CHAN) {
+                    sqBase = SENDERQP_LO_BASE(2);  sqIdx = sqBase + idx;  npc_counter_add(senderQp[sqIdx], payloadHead.x0[15:0]);
+                    sqBase = SENDERQP_HI_BASE(2);  sqIdx = sqBase + idx;  npc_counter_add(senderQp[sqIdx], payloadHead.x0[23:16]);
+                }
+                if (inchannel == RANK4_IN_CHAN) {
+                    sqBase = SENDERQP_LO_BASE(3);  sqIdx = sqBase + idx;  npc_counter_add(senderQp[sqIdx], payloadHead.x0[15:0]);
+                    sqBase = SENDERQP_HI_BASE(3);  sqIdx = sqBase + idx;  npc_counter_add(senderQp[sqIdx], payloadHead.x0[23:16]);
+                }
+#endif
+
+                uint<32> res;
+                npc_counter_add(fanin[idx], 1, res);
+
+                if (res != EPIC_FANIN_FULL) {
+                    npc_counter_add(debugCounter[DEBUG_CNTID_BUFFERED], 1);
+                    EpicDropExit();
+                }
+
+
+                uint<32> faninDummy;
+                npc_counter_read_clr(fanin[idx], faninDummy);
+
+                ipv4Hdr.Sip      = VEP_IP;
+                ipv4Hdr.TotalLen = RESULT_IP_TOTAL_LEN;
+                udpHdr.PktLength  = RESULT_UDP_PKT_LEN;
+                udpHdr.Checksum   = 0;
+                bthHdr.Opcode = BTH_OP_UC_SEND_ONLY;
+                bthHdr.AckReq = 0;
+
+                npc_counter_add(debugCounter[DEBUG_CNTID_TX_RESULT], 1);
+
+#if ONLY_FAIN_COMMON_QP
+                EpicFanoutChild(WORKER1_OUT_CHAN, WORKER1_OUT_SQID, WORKER1_MAC, RANK1_DOWN_IP, commonQpn);
+                EpicFanoutChild(WORKER2_OUT_CHAN, WORKER2_OUT_SQID, WORKER2_MAC, RANK2_DOWN_IP, commonQpn);
+                EpicFanoutChild(WORKER3_OUT_CHAN, WORKER3_OUT_SQID, WORKER3_MAC, RANK3_DOWN_IP, commonQpn);
+                EpicFanoutChild(WORKER4_OUT_CHAN, WORKER4_OUT_SQID, WORKER4_MAC, RANK4_DOWN_IP, commonQpn);
+#else
+                uint<32> qLo;
+                uint<32> qHi;
+                uint<32> qVal0;
+                uint<32> qVal1;
+                uint<32> qVal2;
+                uint<32> qVal3;
+                uint<EPIC_SENDERQP_WIDTH> rB;
+                uint<EPIC_SENDERQP_WIDTH> rI;
+                rB = SENDERQP_LO_BASE(0);  rI = rB + idx;  npc_counter_read_clr(senderQp[rI], qLo);
+                rB = SENDERQP_HI_BASE(0);  rI = rB + idx;  npc_counter_read_clr(senderQp[rI], qHi);
+                qVal0 = qHi << 16;  qVal0 = qVal0 + qLo;
+                rB = SENDERQP_LO_BASE(1);  rI = rB + idx;  npc_counter_read_clr(senderQp[rI], qLo);
+                rB = SENDERQP_HI_BASE(1);  rI = rB + idx;  npc_counter_read_clr(senderQp[rI], qHi);
+                qVal1 = qHi << 16;  qVal1 = qVal1 + qLo;
+                rB = SENDERQP_LO_BASE(2);  rI = rB + idx;  npc_counter_read_clr(senderQp[rI], qLo);
+                rB = SENDERQP_HI_BASE(2);  rI = rB + idx;  npc_counter_read_clr(senderQp[rI], qHi);
+                qVal2 = qHi << 16;  qVal2 = qVal2 + qLo;
+                rB = SENDERQP_LO_BASE(3);  rI = rB + idx;  npc_counter_read_clr(senderQp[rI], qLo);
+                rB = SENDERQP_HI_BASE(3);  rI = rB + idx;  npc_counter_read_clr(senderQp[rI], qHi);
+                qVal3 = qHi << 16;  qVal3 = qVal3 + qLo;
+
+                EpicFanoutChild(WORKER1_OUT_CHAN, WORKER1_OUT_SQID, WORKER1_MAC, RANK1_DOWN_IP, qVal0[23:0]);
+                EpicFanoutChild(WORKER2_OUT_CHAN, WORKER2_OUT_SQID, WORKER2_MAC, RANK2_DOWN_IP, qVal1[23:0]);
+                EpicFanoutChild(WORKER3_OUT_CHAN, WORKER3_OUT_SQID, WORKER3_MAC, RANK3_DOWN_IP, qVal2[23:0]);
+                EpicFanoutChild(WORKER4_OUT_CHAN, WORKER4_OUT_SQID, WORKER4_MAC, RANK4_DOWN_IP, qVal3[23:0]);
+#endif
+
+                EpicDropExit();
+#endif
+            }
+        }
+    } else {
+        npc_counter_add(debugCounter[DEBUG_CNTID_DROP_NON_ROCE], 1);
+    }
+
+    if (ethHdr.DstMac[15:0] == WORKER1_MAC_LO16) {
+        EpicForward(WORKER1_OUT_CHAN, WORKER1_OUT_SQID);
+    }
+    if (ethHdr.DstMac[15:0] == WORKER2_MAC_LO16) {
+        EpicForward(WORKER2_OUT_CHAN, WORKER2_OUT_SQID);
+    }
+    if (ethHdr.DstMac[15:0] == WORKER3_MAC_LO16) {
+        EpicForward(WORKER3_OUT_CHAN, WORKER3_OUT_SQID);
+    }
+    if (ethHdr.DstMac[15:0] == WORKER4_MAC_LO16) {
+        EpicForward(WORKER4_OUT_CHAN, WORKER4_OUT_SQID);
+    }
+
+    npc_counter_add(debugCounter[DEBUG_CNTID_MAC_MISS], 1);
+    EpicDropExit();
+}
+
+NPCProgram(ParseEthernet(), main_control()) main;

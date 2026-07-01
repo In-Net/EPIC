@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package inc;
+
+service INC {
+    rpc CreateGroup (CreateGroupRequest) returns (CreateGroupResponse) {}
+    rpc DestroyGroup (DestroyGroupRequest) returns (DestroyGroupResponse) {}
+    rpc Stop (StopRequest) returns (StopResponse) {}
+    rpc Init (InitRequest) returns (InitResponse) {}
+}
+
+message CreateGroupRequest {
+    repeated MemberInfo Member=1; // the order is used as rank
+    // fixed32 MemorySize = 2; // use constant value
+}
+
+message MemberInfo {
+    fixed32 IP=1;
+}
+
+message CreateGroupResponse {
+    repeated MemberInfo Member=1; // the order is used as rank
+    fixed32 GroupID = 2;
+    fixed32 AggAddr = 3;
+    fixed32 AggLen = 4;
+}
+
+message DestroyGroupRequest {
+    fixed32 GroupID=1;
+}
+
+message DestroyGroupResponse {
+    // nothing
+}
+
+message StopRequest {
+}
+
+message StopResponse {
+}
+
+message InitRequest {
+}
+
+message InitResponse {
+}
