@@ -1,0 +1,15 @@
+build/
+build-debug/
+common/run/
+common/images/
+*.o
+*.a
+*.so
+*.log
+*.pid
+*.endpoint
+*.conf
+*.csv
+*.tex
+*.md
+__pycache__/
