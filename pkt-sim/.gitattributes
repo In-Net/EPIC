@@ -1,0 +1,6 @@
+# Use the following to delete tracked source files and replace them with LF endings
+# git ls-files -z | xargs -0 rm
+# git reset --hard
+
+# Force LF endings to text files
+* text=auto eol=lf
