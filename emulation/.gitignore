@@ -11,5 +11,5 @@ common/images/
 *.conf
 *.csv
 *.tex
-*.md
+
 __pycache__/
