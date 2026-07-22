@@ -8,6 +8,7 @@ EPIC (Ethernet Polymorphic In-network Collectives) is an in-network collective c
 
 | Directory | Description |
 | --- | --- |
+| [`verify/`](verify/README.md) | TLA+/TLC formal verification of EPIC-II and EPIC-III under packet loss, reordering, and duplication. |
 | [`flow-sim/`](flow-sim/README.md) | OMNeT++ flow-level simulations for evaluating resource management and job completion time. |
 | [`pkt-sim/`](pkt-sim/README.md) | ns-3 packet-level simulations of Ring, EPIC-II, and EPIC-III, including packet-loss experiments. |
 | [`emulation/`](emulation/README.md) | VM-based implementation used to evaluate EPIC's collective modes over RoCE. |
